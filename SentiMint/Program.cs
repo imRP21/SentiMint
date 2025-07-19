@@ -8,7 +8,9 @@ namespace SentiMint
 
             // Add services to the container.
             builder.Services.AddControllersWithViews();
+            builder.Services.AddControllers();
             builder.Services.AddSwaggerGen();
+            builder.Services.AddSingleton<Services.SentimentAnalysisEngine>();
 
             var app = builder.Build();
 

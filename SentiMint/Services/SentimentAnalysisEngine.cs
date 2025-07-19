@@ -1,19 +1,29 @@
 ﻿using Microsoft.ML;
-using Microsoft.ML.Data;
+using SentiMint.Models;
 
 namespace SentiMint.Services
 {
     public class SentimentAnalysisEngine
     {
-        private readonly string _modelPath  = "Path to local models";
+        private readonly string _modelPath  = @"D:\Codebase\Repos\SentiMint\SentiMint\Adhoc\Model\SdcaLogisticRegression";
         private readonly MLContext _mlContext;
         private ITransformer _trainedModel;
+        private PredictionEngine<SentimentData, SentimentPredictionInternal> _predictionEngine;
 
-        // Classes used for training and prediction
+        // Class used for training.
         public class SentimentData
         {
             public bool Label { get; set; }
             public string ReviewText { get; set; }
+        }
+
+        /// <summary>
+        /// Class used for prediction results.
+        /// </summary>
+        private class SentimentPredictionInternal
+        {
+            public bool PredictedLabel { get; set; }
+            public float Score { get; set; }
         }
 
         /// <summary>
@@ -40,6 +50,9 @@ namespace SentiMint.Services
                 // If not found, train a model with training data
                 TrainModel();
             }
+
+            // Create a prediction engine for making predictions
+            _predictionEngine = _mlContext.Model.CreatePredictionEngine<SentimentData, SentimentPredictionInternal>(_trainedModel);
         }
 
         /// <summary>
@@ -65,15 +78,42 @@ namespace SentiMint.Services
 
             var trainingDataView = _mlContext.Data.LoadFromEnumerable(trainingData);
 
-            // Defin the pipeline: Convert text to features and then use a binay classifier
+            // Defin the pipeline: Convert text to features and then use a binary classifier
             var pipeline = _mlContext.Transforms.Text.FeaturizeText("Features", nameof(SentimentData.ReviewText));
-            var trainer = _mlContext.BinaryClassification.Trainers.SdcaLogisticRegression(labelColumnName: nameof(SentimentData.Label), maximumNumberOfIterations: 100);
+            var trainer = _mlContext.BinaryClassification.Trainers.SdcaLogisticRegression(
+                labelColumnName: nameof(SentimentData.Label), 
+                maximumNumberOfIterations: 10);
             var trainingPipeline = pipeline.Append(trainer);
 
             // Train the model
             _trainedModel = trainingPipeline.Fit(trainingDataView);
 
-            // 
+            // Save model for future use
+            using (var stream = new FileStream(_modelPath, FileMode.Create, FileAccess.Write, FileShare.Write))
+            {
+                _mlContext.Model.Save(_trainedModel, trainingDataView.Schema, stream);
+            }
+        }
+
+        public SentimentPrediction Predict(string reviewText)
+        {
+            if (_trainedModel == null)
+            {
+                throw new InvalidOperationException("Model is not trained or loaded.");
+            }
+
+            // Create a new instance of SentimentData for prediction
+            var input = new SentimentData { ReviewText = reviewText };
+
+            // Predict the sentiment
+            var prediction = _predictionEngine.Predict(input);
+
+            // Map the internal prediction to the public SentimentPrediction model
+            return new SentimentPrediction
+            {
+                IsPositive = prediction.PredictedLabel,
+                Score = prediction.Score
+            };
         }
     }
 }
